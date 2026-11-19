@@ -1,22 +1,24 @@
-"""GHL B0's uniform-legal-action policy on GKBench's public interface."""
-from gkbench.algos.base import Algorithm, Decision
+"""GHL's historical random control, delegated to the pinned GKBench SDK."""
+from gkbench.algos.simple import RandomAlgo
+from ghl_descriptions import description
 
 
-class B0(Algorithm):
-    name = 'ghl-b0-random'
-    about = {
-        'summary': 'GHL B0: uniformly sample one current legal action.',
-        'sees': 'screen',
-        'family': 'ghl-b0',
-        'detail': [
-            'Same decision rule as GHL src/policies/random.ts; no search or model.',
-            'The independent GKBench algorithm RNG supplies uniform draws; game seeds and deck order are never read.',
-            'All legal actions, including end-turn and selections, participate equally.',
-        ],
-    }
+class UniformRandom(RandomAlgo):
+    name = "ghl-b0-random"
+    title = "随机合法动作 / Uniform Random"
+    about = description(
+        "从合法动作中均匀抽取一个。 Uniformly sample a legal action.",
+        "沿用 GKBench 内置 random 的决策规则，出牌、饮料、结束回合等合法动作均可抽中。",
+        "Uses the SDK's random policy. All legal actions are eligible, using the policy RNG.",
+        family="ghl-b0",
+    )
 
     def decide(self, ctx):
-        legal = ctx.obs['legal']
-        if not legal:
-            raise ValueError('B0 received no legal action')
-        return Decision(tuple(legal[ctx.rng.randrange(len(legal))]), {'policy': 'GHL-B0'})
+        if not ctx.obs["legal"]:
+            raise ValueError("B0 received no legal action")
+        decision = super().decide(ctx)
+        decision.meta["policy"] = "GHL-B0"
+        return decision
+
+
+B0 = UniformRandom

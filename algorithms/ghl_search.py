@@ -11,6 +11,7 @@ from collections import Counter
 from copy import deepcopy
 
 from gkbench.algos.base import Algorithm, Decision
+from ghl_descriptions import description
 
 
 class UnsupportedSearch(ValueError):
@@ -126,24 +127,13 @@ class _Search(Algorithm):
     privileged = False
     sees_seed = False
     objective = "raw-score"
-    title = "GHL B4 / GKMS sampled worlds"
-    name = "ghl-b4-gkms"
-    about = {
-        "summary": "GHL battle rollout search adapted to GKMS sampled worlds.",
-        "sees": "screen",
-        "detail": [
-            "Each action uses clones of the same GKBench resampled worlds; no true deal or seed is read.",
-            "Continuation is the original GHL B1v2 heuristic on exported public UI observations.",
-            "Only complete equal-sample sweeps count; budget reduction is recorded, and zero complete sweeps is an error.",
-            "The local deadline excludes separately reported world acquisition; full elapsed time is retained and official server timing is unchanged.",
-        ],
-    }
 
     def __init__(self, samples=3, seconds=4.5, max_steps=160, **params):
         super().__init__(samples=int(samples), seconds=float(seconds), max_steps=int(max_steps), **params)
         self.samples, self.seconds, self.max_steps = int(samples), float(seconds), int(max_steps)
         if not 1 <= self.samples <= 64 or not 0.05 <= self.seconds <= 10 or self.max_steps < 1:
             raise ValueError("samples must be 1..64, seconds 0.05..10, and max_steps positive")
+        self.about = dict(self.about, family=self.family.format(samples=self.samples))
         self._bridge_instance = None
         self._clock = time.monotonic
         self._public_history = []
@@ -327,15 +317,16 @@ class _Search(Algorithm):
         })
 
 
-class GHLB2(_Search):
+class OneStepValueSearch(_Search):
     name = "ghl-b2-battle-projection-gkms"
-    title = "GHL B2 battle-value projection / GKMS"
+    family = "ghl-b2-battle-projection"
+    title = "单步估值搜索 / One-Step Value Search"
     objective = "battle-projection"
-    about = dict(_Search.about,
-                 summary="One-step sampled-world GHL B2 battle-value projection.",
-                 detail=[_Search.about["detail"][0], _Search.about["detail"][2], _Search.about["detail"][3],
-                     "Uses the original battle term only; campaign resources and terminal evaluation are unavailable.",
-                     "The battle formula is retained on the terminal screen with zero remaining turns; no continuation is used."])
+    about = description(
+        "在采样世界中将每个动作推进一步，再比较考试估值。 Compare one-step exam values across sampled worlds.",
+        "每个候选动作使用同一批重新采样的牌序。估值结合当前得分、增益与剩余回合，仅计入完整的一轮比较。",
+        "Each candidate gets the same resampled worlds. The evaluation uses current score, buffs and turns left. Only complete sweeps count.",
+    )
 
     def _validate(self, ctx):
         kind = exam_kind(ctx.obs, ctx.loadout)
@@ -349,18 +340,29 @@ class GHLB2(_Search):
         return kind
 
 
-class GHLB4(_Search):
-    pass
+class FinalScoreRollout(_Search):
+    name = "ghl-b4-gkms"
+    family = "ghl-b4-gkms-n{samples}"
+    title = "终局得分搜索 / Final Score Rollout"
+    about = description(
+        "从每个候选动作推演到考试结束，比较平均得分。 Compare actions by mean final exam score.",
+        "在重新采样的世界中，后续出牌由 Logic 分流启发式决定。只计入所有候选动作都完成的采样轮次。",
+        "Uses the Logic Subtype Heuristic for continuation in resampled worlds. Only complete sweeps across candidates count.",
+    )
 
 
-class GHLB4V2(_Search):
+class RankAndDrinkRollout(_Search):
     name = "ghl-b4v2-expected-rank-gkms"
-    title = "GHL B4v2 expected-rank adaptation / GKMS"
+    family = "ghl-b4v2-gkms-n{samples}"
+    title = "名次与饮料保留搜索 / Rank and Drink Rollout"
     objective = "expected-rank-v2"
-    about = dict(_Search.about,
-                 summary="GHL B4v2 with explicit expected-rank midterm adaptation.",
-                 detail=_Search.about["detail"] + [
-                     "Final objective is raw score. Midterm uses original GHL rating/placement values and drink reserve prices.",
-                     "Rivals are modeled independently and uniformly over public integer score ranges; ties favor the player.",
-                     "Uses GHL's week-10 future-drink prior and three-slot reserve capacity; these are model assumptions.",
-                     "Midterm continuations retain drinks; evaluated root drink actions pay the reserve cost."])
+    about = description(
+        "中间审查权衡预计名次与保留饮料的价值，最终审查比较得分。 Balance midterm rank and drink reserves, then maximize final score.",
+        "中间审查按公开对手区间估计名次。推演尽量保留饮料，用第十周的补给先验估值。最终审查与终局得分搜索共用目标。",
+        "Midterms model each rival uniformly within its public score range and value retained drinks using a week-ten prior. Finals use the same score objective as Final Score Rollout.",
+    )
+
+
+GHLB2 = OneStepValueSearch
+GHLB4 = FinalScoreRollout
+GHLB4V2 = RankAndDrinkRollout

@@ -10,6 +10,7 @@ import subprocess
 import threading
 
 from gkbench.algos.base import Algorithm, Decision
+from ghl_descriptions import description
 
 ROOT = Path(__file__).resolve().parent
 
@@ -29,7 +30,7 @@ def public_history_entry(obs, action):
 
 
 class GHLBridge:
-    def __init__(self, ghl_root=None, node=None, timeout=30):
+    def __init__(self, ghl_root=None, node=None, timeout=30, *, script='ghl_logic_bridge.mjs'):
         self.root = Path(ghl_root or os.environ.get('GHL_ROOT') or ROOT.parent / 'runtime').resolve()
         self.timeout = float(timeout)
         self._lock = threading.Lock()
@@ -38,7 +39,7 @@ class GHLBridge:
             raise RuntimeError('GHL bridge requires Node >=24')
         self.process = subprocess.Popen(
             [node, '--no-warnings', '--import', str(self.root / 'src/upstream/register.ts'),
-             str(ROOT / 'ghl_logic_bridge.mjs')],
+             str(ROOT / script)],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
             env={**os.environ, 'GHL_ROOT': str(self.root)},
         )
@@ -88,16 +89,6 @@ class GHLHeuristic(Algorithm):
     def __init__(self, **params):
         super().__init__(**params)
         self.bridge = GHLBridge(ghl_root=params.get('ghl_root'))
-        self.about = {
-            'summary': f'Original GHL {self.policy} via a strict public-observation Logic adapter.',
-            'sees': 'screen', 'family': f'ghl-{self.policy.lower()}',
-            'detail': [
-                'Calls the original GHL policy; coefficients and tie-breaking are unchanged.',
-                'Only public observations, starting loadout and legal actions are used.',
-                'Unsupported mechanics fail explicitly; no replacement policy is silently substituted.',
-                'The original heuristic estimates base card effects and does not score customizations.',
-            ],
-        }
 
     def begin(self, ctx):
         self._public_history=[]
@@ -123,41 +114,60 @@ class GHLHeuristic(Algorithm):
         self.bridge.close()
 
 
-class B1(GHLHeuristic):
-    policy = 'B1'
-    name = 'ghl-b1-logic'
+class LogicCardHeuristic(GHLHeuristic):
+    policy = "B1"
+    name = "ghl-b1-logic"
+    title = "Logic 卡牌估值 / Logic Card Heuristic"
+    about = description(
+        "按当前牌效与剩余回合选择动作。 Rank actions by card effects and remaining turns.",
+        "估算得分、增益、体力消耗和额外行动，只读取公开画面和开局配置。B3 在独立考试里也调用这条规则。",
+        "Estimates score, buffs, stamina costs and extra actions from the public state. B3 delegates exams to this rule.",
+        family="ghl-b1",
+    )
 
 
-class B1v2(GHLHeuristic):
-    policy = 'B1v2'
-    name = 'ghl-b1v2-logic'
+class LogicSubtypeHeuristic(GHLHeuristic):
+    policy = "B1v2"
+    name = "ghl-b1v2-logic"
+    title = "Logic 分流启发式 / Logic Subtype Heuristic"
+    about = description(
+        "按偶像的好印象或干劲类型选择规则。 Choose a rule for the idol’s Logic subtype.",
+        "好印象型使用好印象出牌与饮料规则。干劲型会估算后续元气积累及可兑现的得分。",
+        "Uses the Good Impression card and drink rule for that subtype. For Motivation, it values future Genki gains and scoring opportunities.",
+        family="ghl-b1v2",
+    )
 
 
-class B1v2GI(GHLHeuristic):
-    policy = 'B1v2gi'
-    name = 'ghl-b1v2gi-logic'
+class GoodImpressionOnly(GHLHeuristic):
+    policy = "B1v2gi"
+    name = "ghl-b1v2gi-logic"
+    title = "好印象固定策略 / Good Impression Only"
+    about = description(
+        "对所有支持的 Logic 开局固定使用好印象规则。 Always use the Good Impression rule.",
+        "用于检验分流是否有用。在好印象型上与分流策略使用同一个分支，在干劲型上仍按好印象处理。",
+        "An ablation of subtype routing. It shares the Good Impression branch and forces it on Motivation idols too.",
+        family="ghl-b1v2gi",
+    )
 
 
-class B3Campaign(GHLHeuristic):
-    """Canonical B3 default delegates battle decisions to B1 before planning."""
-    policy = 'B1'
-    name = 'ghl-b3-campaign-b1'
-
-    def __init__(self, **params):
-        super().__init__(**params)
-        self.about = {
-            'summary': 'Canonical GHL B3 in its default campaign-only scope: exam decisions delegate to original B1.',
-            'sees': 'screen', 'family': 'ghl-b3-campaign',
-            'detail': [
-                'This matches the default factory configuration in src/cli/common.ts and battle branch in src/policies/rollout.ts.',
-                'GKBench exposes isolated exams, so no campaign rollout executes here; decisions are identical to B1.',
-                'This is the configured B3 battle behavior, not a claim that B3 searches whole campaigns inside GKBench.',
-                'Same strict Logic adapter scope and explicit unsupported-state failures as the B1 entry.',
-            ],
-        }
+class B3Campaign(LogicCardHeuristic):
+    """Compatibility entry for B3's delegation in standalone exams."""
+    name = "ghl-b3-campaign-b1"
+    title = "Logic 卡牌估值（B3 考试别名） / Logic Card Heuristic (B3 Exam Alias)"
+    about = description(
+        "B3 的独立考试入口调用 B1。 B3 delegates standalone exams to the Logic Card Heuristic.",
+        "保留旧入口以复跑历史配置。育成阶段的规划在独立考试中不会执行。",
+        "Kept for reproducing historical commands. Campaign planning runs outside standalone exams.",
+        family="ghl-b3-campaign",
+    )
 
     def decide(self, ctx):
         decision = super().decide(ctx)
         decision.meta = {**decision.meta, 'configured_policy': 'B3', 'scope': 'campaign',
                          'battle_delegate': 'B1', 'simulated_transitions': 0}
         return decision
+
+
+B1 = LogicCardHeuristic
+B1v2 = LogicSubtypeHeuristic
+B1v2GI = GoodImpressionOnly

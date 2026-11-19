@@ -48,10 +48,10 @@ for(const [level,cost]of[[2,5],[3,4]])if(originalIdAt(777,level)===null) {
 const idAt=(base,level)=>originalIdAt(base,level)??logicLevels.get(`${base}:${level}`)??null;
 const publicMaster=JSON.parse(readFileSync(path.join(here,'fixtures/logic-public-master.json'),'utf8'));
 const table=name=>new Map(publicMaster[name].map(r=>[r.id,r]));
-const native={items:table('ProduceItem'),itemEffects:table('ProduceItemEffect'),
+export const native={items:table('ProduceItem'),itemEffects:table('ProduceItemEffect'),
   enchants:table('ProduceExamStatusEnchant'),effects:table('ProduceExamEffect'),
   triggers:table('ProduceExamTrigger'),drinks:table('ProduceDrink'),grows:table('ProduceCardGrowEffect')};
-const nativeCards=new Map(publicMaster.ProduceCard.map(c=>[`${c.id}#${c.upgradeCount}`,c]));
+export const nativeCards=new Map(publicMaster.ProduceCard.map(c=>[`${c.id}#${c.upgradeCount}`,c]));
 const customizations=new Map(publicMaster.ProduceCardCustomize.map(c=>[`${c.id}#${c.customizeCount}`,c]));
 const idols=JSON.parse(readFileSync(path.join(root,'upstream/derived/hajime-idolcards.json'),'utf8')).idolCards;
 const norm=x=>String(x).normalize('NFKC').replace(/\s+/g,'');
@@ -90,11 +90,11 @@ function cardPublic(x) {
   const growth=x.g.map(k=>typeof k==='string'?(native.grows.get(k)||fail(`unknown grow ${k}`)):k);
   return {id:x.id,upgrade:x.u,name:n.name,customizations:custom,growth};
 }
-function mappedCard(x,iid,{model=false}={}) {
+export function mappedCard(x,iid,{model=false, fallbackLevel}={}) {
   x=parseCard(x);const visible=cardPublic(x);
   const base=cachedBaseId(x.id);
   if(base===null) fail(`unmapped GHL card ${x.id}`);
-  const id=x.u===0?base:idAt(base,x.u);
+  const id=x.u===0?base:(idAt(base,x.u)??fallbackLevel?.(x.id,base,x.u)??null);
   if(id===null) fail(`unmapped upgrade ${x.id}+${x.u}`);
   const c=card(id),hidden=[...hiddenReads([c.raw.actions,c.raw.effects,c.raw.cost])];
   if(hidden.length&&!model) fail(`${x.id} needs unavailable public counters ${hidden.join(',')}`);
@@ -109,7 +109,7 @@ function getEffect(loadout,obs) {
   if(idol.examEffectType==='ExamCardPlayAggressive')return'motivation';
   fail(`Logic subtype ${idol.examEffectType}`);
 }
-function drinkDef(id) {
+export function drinkDef(id) {
   const n=native.drinks.get(id);if(!n)fail(`unknown drink ${id}`);
   const ds=allDrinks().filter(d=>norm(d.name)===norm(n.name));
   if(ds.length!==1)fail(`ambiguous/unmapped drink ${id}`);
