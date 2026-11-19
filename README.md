@@ -39,6 +39,8 @@ Sense 策略使用新版 GHL 的考试出牌规则。它读取手牌、公开牌
 | NIA | 3 | 46,921.43 | 20,461.10 | 10,930.96 | 3/3 |
 | 偶像之路 / Idol Road | 50 | 132,181.24 | 85,438.57 | 22,664.29 | 48/50 |
 
+Sense 正式评测使用 GKBench 的保密牌序。 / Official Sense runs use the hosted judge’s private deals. [HIF](https://hiro.matto.top/gkbench/runs/template-hif-ghl-sense-buff-value-yzhouwang-47dfb495c3a6) · [NIA](https://hiro.matto.top/gkbench/runs/template-nia-ghl-sense-buff-value-yzhouwang-b0c82049c802) · [偶像之路 / Idol Road](https://hiro.matto.top/gkbench/runs/template-idolroad-ghl-sense-buff-value-yzhouwang-3503a38c0c9b)
+
 ## 先跑随机对照 / Run the random control
 
 以下命令从本目录执行。使用 Python 3.12 和 Git。托管评测使用运行者自己的 GKBench 登录凭据。这个命令在服务端创建一项单题单牌序评测。

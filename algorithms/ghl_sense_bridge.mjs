@@ -1,7 +1,7 @@
 import { createInterface } from 'node:readline';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mappedCard, parseCard, drinkDef, native } from './ghl_logic_bridge.mjs';
+import { mappedCard, parseCard, drinkDef, native, nativeCards } from './ghl_logic_bridge.mjs';
 import { senseLevel, supplementalCard } from './ghl_sense_levels.mjs';
 import { battleDecision } from '../runtime/src/sense/battle.ts';
 
@@ -43,6 +43,39 @@ function publicBuffs(obs) {
   return buffs;
 }
 
+const senseMapping = {model: true, fallbackLevel: senseLevel};
+const maxNativeTier = new Map();
+for (const row of nativeCards.values()) {
+  maxNativeTier.set(row.id, Math.max(maxNativeTier.get(row.id) ?? 0, row.upgradeCount));
+}
+const validatedOverflow = new Set();
+
+function senseCard(spec, instanceId) {
+  const card = parseCard(spec);
+  if (!Number.isSafeInteger(card.u) || card.u < 0) throw Error('Invalid public card upgrade count');
+  const supplement = supplementalCard(card, instanceId);
+  if (supplement) return supplement;
+
+  const top = maxNativeTier.get(card.id);
+  if (top === undefined || card.u <= top || nativeCards.has(`${card.id}#${card.u}`)) {
+    return mappedCard(card, instanceId, senseMapping);
+  }
+  // Rules 65 refresh_card retains the sum of base, temporary and support
+  // upgrades on the screen, but uses the highest available row for effects.
+  // Only extend cards whose native tiers can all be valued by this adapter.
+  if (!validatedOverflow.has(card.id)) {
+    for (let u = 0; u <= top; u++) {
+      if (nativeCards.has(`${card.id}#${u}`)) {
+        mappedCard({id: card.id, u}, instanceId, senseMapping);
+      }
+    }
+    validatedOverflow.add(card.id);
+  }
+  const instance = mappedCard({...card, u: top}, instanceId, senseMapping);
+  instance.publicCard.upgrade = card.u;
+  return instance;
+}
+
 export function adaptSense(obs, loadout) {
   const label = roundLabel(obs, loadout);
   const cards = {};
@@ -51,9 +84,7 @@ export function adaptSense(obs, loadout) {
   // immaterial except for the screen's hand indices used for legal actions.
   for (const pile of ['hand', 'deck', 'grave']) {
     piles[pile] = obs[pile].map((spec, index) => {
-      const instanceId = `${pile}-${index}`;
-      const instance = supplementalCard(parseCard(spec), instanceId) ??
-        mappedCard(spec, instanceId, {model: true, fallbackLevel: senseLevel});
+      const instance = senseCard(spec, `${pile}-${index}`);
       cards[instance.id] = instance;
       return instance.id;
     });
